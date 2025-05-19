@@ -50,17 +50,31 @@ export default {
 
       const responseText = await response.text();
 
-      if (response.status === 401) throw new Error('Ошибка аутентификации: неверные учетные данные');
+      // Логируем ответ сервера для отладки
+      console.log('Ответ сервера:', responseText);
+
+      // Проверяем, что responseText — это валидный JSON
+      if (!responseText || !responseText.trim().startsWith('{')) {
+        throw new Error(`Сервер вернул некорректный JSON: ${responseText || 'пустой ответ'}`);
+      }
+
+      if (response.status === 401) {
+        throw new Error('Ошибка аутентификации: неверные учетные данные');
+      }
+
+      let result;
+      try {
+        result = JSON.parse(responseText);
+      } catch (e) {
+        throw new Error(`Ошибка парсинга JSON: ${e.message}. Текст ответа: ${responseText}`);
+      }
 
       if (!response.ok) {
-        const errorData = JSON.parse(responseText);
-        if (errorData.ошибка?.код === 'DRIVER_FETCH_ERROR' && response.status === 500) {
-          return { status: 'Ошибка', error: errorData.ошибка.сообщение, coords: null, startWarehouse: null, endWarehouse: null };
+        if (result.ошибка?.код === 'DRIVER_FETCH_ERROR' && response.status === 500) {
+          return { status: 'Ошибка', error: result.ошибка.сообщение, coords: null, startWarehouse: null, endWarehouse: null };
         }
         throw new Error(`HTTP error! status: ${response.status}, body: ${responseText}`);
       }
-
-      const result = JSON.parse(responseText);
 
       if (result.состояние !== 'В пути') {
         return {

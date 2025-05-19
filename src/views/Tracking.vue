@@ -17,7 +17,7 @@
       </div>
       <div class="control-panel" :class="{ 'expanded-control': isMapExpanded }">
         <div class="input-section">
-          <input v-model="orderId" placeholder="Введите номер заказа (например, 000003)" class="order-input" />
+          <input v-model="orderId" placeholder="Введите номер заказа (например, НФНФ-000003)" class="order-input" />
           <div class="button-group">
             <button @click="startTracking" class="track-button">Отследить</button>
             <button @click="resetTracking" class="reset-button">Сброс</button>

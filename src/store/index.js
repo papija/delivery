@@ -20,11 +20,16 @@ const savedState = loadStateFromStorage();
 export default createStore({
   state: {
     isMapExpanded: localStorage.getItem('isMapExpanded') === 'true',
+    serverResponseLog: '',
+    initialTrackingDelay: 5000,
   },
   mutations: {
     setMapExpanded(state, value) {
       state.isMapExpanded = value;
       localStorage.setItem('isMapExpanded', value.toString());
+    },
+    setServerResponseLog(state, log) {
+      state.serverResponseLog = log;
     },
   },
   actions: {
@@ -57,6 +62,7 @@ export default createStore({
         isReversing: savedState?.isReversing || false,
         isTrackingError: savedState?.isTrackingError || false,
         savedRoute: savedState?.savedRoute || null,
+        isTrackingInitializing: savedState?.isTrackingInitializing || false,
       },
       getters: {
         orderId: (state) => state.orderId,
@@ -72,6 +78,7 @@ export default createStore({
         isFollowing: (state) => state.isFollowing,
         isTrackingError: (state) => state.isTrackingError,
         savedRoute: (state) => state.savedRoute,
+        isTrackingInitializing: (state) => state.isTrackingInitializing,
       },
       mutations: {
         setOrderId(state, value) {
@@ -158,6 +165,9 @@ export default createStore({
           state.savedRoute = route;
           saveStateToStorage(state);
         },
+        setIsTrackingInitializing(state, value) {
+          state.isTrackingInitializing = value;
+        },
         resetTrackingState(state) {
           state.orderId = '';
           state.driverCoords = null;
@@ -176,6 +186,7 @@ export default createStore({
           state.isRouteBuilt = false;
           state.isTrackingError = false;
           state.savedRoute = null;
+          state.isTrackingInitializing = false;
           localStorage.removeItem('tracking_state');
           saveStateToStorage(state);
         },
@@ -199,7 +210,7 @@ export default createStore({
                 } catch {}
 
                 if (errorData.ошибка?.код === 'ORDER_NOT_FOUND') {
-                  const orderNumber = errorData.ошибка?.сообщение.match(/Заказ с номером (\d+)/)?.[1] || state.currentTrackedOrder;
+                  const orderNumber = errorData.ошибка?.сообщение.match(/Заказ с номером (\S+)/)?.[1] || state.currentTrackedOrder;
                   commit('setErrorMessage', `Заказ с номером ${orderNumber} не найден. Пожалуйста, проверьте номер заказа и попробуйте снова.`);
                   commit('setErrorDialogVisible', true);
                   commit('setCurrentOrderStatus', 'Ошибка');
@@ -209,7 +220,7 @@ export default createStore({
                   commit('setQueueNumber', null);
                   commit('setIsTrackingError', true);
                   dispatch('stopPolling');
-                  break; // Прерываем цикл при ORDER_NOT_FOUND
+                  break;
                 }
 
                 if (errorData.ошибка?.код === 'DRIVER_FETCH_ERROR') {
@@ -265,16 +276,20 @@ export default createStore({
               }
               break;
             } catch (error) {
-              const orderNumberMatch = error.message.match(/Заказ с номером (\d+)/);
+              console.error('Ошибка при запросе статуса заказа:', error.message); // Логируем для отладки
+              const orderNumberMatch = error.message.match(/Заказ с номером (\S+)/);
               if (orderNumberMatch) {
                 const orderNumber = orderNumberMatch[1];
                 commit('setErrorMessage', `Заказ с номером ${orderNumber} не найден. Пожалуйста, проверьте номер заказа и попробуйте снова.`);
                 commit('setErrorDialogVisible', true);
                 commit('setIsTrackingError', true);
                 dispatch('stopPolling');
-                break; // Прерываем цикл при ORDER_NOT_FOUND
+                break;
               } else {
-                commit('setErrorMessage', `Не удалось получить данные о заказе: ${error.message}. Проверьте подключение к интернету и попробуйте снова.`);
+                const displayMessage = error.message === 'Failed to fetch'
+                  ? 'Не удалось установить соединение с сервером. Проверьте подключение к интернету и попробуйте снова.'
+                  : `Не удалось получить данные о заказе: ${error.message}. Проверьте подключение к интернету и попробуйте снова.`;
+                commit('setErrorMessage', displayMessage);
                 commit('setErrorDialogVisible', true);
                 commit('setIsTrackingError', true);
                 if (attempt < maxAttempts - 1) {
@@ -300,13 +315,17 @@ export default createStore({
           }
         },
         async startTracking({ commit, state, dispatch }) {
-          if (!state.orderId || !/^\d{6,}$/.test(state.orderId)) {
-            commit('setErrorMessage', 'Введите корректный номер заказа (не менее 6 цифр).');
+          if (state.isTrackingInitializing) return;
+
+          const orderFormat = /^[A-ZА-Я]{2,4}-[0-9]{6,}$/;
+          if (!state.orderId || !orderFormat.test(state.orderId)) {
+            commit('setErrorMessage', 'Введите корректный номер заказа (например, НФНФ-000002, АТР-000002, где префикс из 2-4 букв, а номер из 6+ цифр).');
             commit('setErrorDialogVisible', true);
             commit('setIsTrackingError', true);
             return;
           }
 
+          commit('setIsTrackingInitializing', true);
           dispatch('stopPolling');
 
           commit('setDriverCoords', null);
@@ -328,7 +347,10 @@ export default createStore({
           commit('setSavedRoute', null);
           commit('setCurrentTrackedOrder', state.orderId);
 
+          await new Promise(resolve => setTimeout(resolve, state.initialTrackingDelay));
+
           await dispatch('pollOrderStatus');
+          commit('setIsTrackingInitializing', false);
         },
         resetTracking({ commit, dispatch }) {
           commit('resetTrackingState');
@@ -365,6 +387,7 @@ function saveStateToStorage(state) {
     isReversing: state.isReversing,
     isTrackingError: state.isTrackingError,
     savedRoute: state.savedRoute,
+    isTrackingInitializing: state.isTrackingInitializing,
   };
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
