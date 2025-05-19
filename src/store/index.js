@@ -257,15 +257,29 @@ export default createStore({
                 commit('setErrorDialogVisible', true);
                 commit('setIsTrackingError', true);
                 dispatch('stopPolling');
-              } else {
-                commit('setIsTrackingError', false);
-              }
+              } else if (response.status === 'В пути') {
+                // Проверка наличия всех необходимых координат
+                const hasCoords = response.coords && Array.isArray(response.coords) && response.coords.length >= 2;
+                const hasStartWarehouse = response.startWarehouse && response.startWarehouse.lat !== null && response.startWarehouse.lon !== null;
+                const hasEndWarehouse = response.endWarehouse && response.endWarehouse.lat !== null && response.endWarehouse.lon !== null;
 
-              if (response.status === 'В пути') {
-                commit('setDriverCoords', response.coords || null);
-                commit('setStartWarehouse', response.startWarehouse || { lat: null, lon: null });
-                commit('setEndWarehouse', response.endWarehouse || { lat: null, lon: null });
-                if (!state.intervalId) dispatch('startPolling');
+                if (!hasCoords || !hasStartWarehouse || !hasEndWarehouse) {
+                  commit('setErrorMessage', 'Отслеживание недоступно, так как не указаны координаты складов и/или водителя.');
+                  commit('setErrorDialogVisible', true);
+                  commit('setCurrentOrderStatus', 'Ошибка');
+                  commit('setDriverCoords', null);
+                  commit('setStartWarehouse', { lat: null, lon: null });
+                  commit('setEndWarehouse', { lat: null, lon: null });
+                  commit('setQueueNumber', null);
+                  commit('setIsTrackingError', true);
+                  dispatch('stopPolling');
+                } else {
+                  commit('setDriverCoords', response.coords);
+                  commit('setStartWarehouse', response.startWarehouse);
+                  commit('setEndWarehouse', response.endWarehouse);
+                  if (!state.intervalId) dispatch('startPolling');
+                  commit('setIsTrackingError', false);
+                }
               } else {
                 commit('setDriverCoords', null);
                 commit('setStartWarehouse', { lat: null, lon: null });
@@ -276,7 +290,7 @@ export default createStore({
               }
               break;
             } catch (error) {
-              console.error('Ошибка при запросе статуса заказа:', error.message); // Логируем для отладки
+              console.error('Ошибка при запросе статуса заказа:', error.message);
               const orderNumberMatch = error.message.match(/Заказ с номером (\S+)/);
               if (orderNumberMatch) {
                 const orderNumber = orderNumberMatch[1];
